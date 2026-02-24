@@ -1,0 +1,1 @@
+export const BG_IMG_URL = "src/utils/pexels-thephotokai-34113885.jpg"
