@@ -3,7 +3,6 @@ import { useParams, useNavigate } from "react-router-dom";
 import { getTrip, updateTrip } from "../utils/firebase";
 import { auth } from "../utils/firebase";
 import { onAuthStateChanged } from "firebase/auth";
-import client from "../client";
 
 const formatDate = (d) => {
   try {
@@ -102,49 +101,54 @@ const TripDetails = () => {
       ". Make each activity short (time, place, description, avg_cost). Return JSON only, no extra text and no markdown.";
 
     try {
-      const response = await fetch("https://api.perplexity.ai/chat/completions", {
-        method: "POST",
-        headers: {
-          Authorization: `Bearer ${import.meta.env.VITE_OPEN_API_KEY}`,
-          "Content-Type": "application/json",
+      const response = await fetch(
+        `https://generativelanguage.googleapis.com/v1beta/models/gemini-2.5-flash:generateContent?key=${import.meta.env.VITE_GEMINI_API_KEY}`,
+        {
+          method: "POST",
+          headers: {
+            "Content-Type": "application/json",
+          },
+          body: JSON.stringify({
+            contents: [
+              {
+                parts: [{ text: userPrompt }],
+              },
+            ],
+            generationConfig: {
+              temperature: 0.4,
+            },
+          }),
         },
-        body: JSON.stringify({
-          model: "sonar-pro",
-          messages: [{ role: "user", content: userPrompt }],
-        }),
-      });
+      );
 
       if (!response.ok) {
         throw new Error(`API error: ${response.status}`);
       }
 
       const data = await response.json();
-      const content =
-        data?.choices?.[0]?.message?.content ||
-        // some APIs return content as an array
-        data?.choices?.[0]?.message?.content?.[0]?.text ||
-        data?.choices?.[0]?.text ||
-        data?.output?.[0]?.content?.[0]?.text ||
-        data?.response ||
-        null;
+      const content = data?.candidates?.[0]?.content?.parts?.[0]?.text || null;
 
       if (!content) {
-        console.error("API response (unexpected shape):", data);
-        setError("No content received from API (see console)");
+        console.error("Gemini response (unexpected shape):", data);
+        setError("No content received from Gemini (see console)");
         setLoading(false);
         return;
       }
 
       let generatedItinerary;
       try {
-        // Try to extract JSON from the response body string
-        const body = typeof content === "string" ? content : JSON.stringify(content);
-        const jsonMatch = body.match(/\[\s*\{[\s\S]*\}\s*\]/);
-        const jsonToParse = jsonMatch ? jsonMatch[0] : body;
+        const body =
+          typeof content === "string" ? content : JSON.stringify(content);
+        const cleaned = body
+          .replace(/```json/gi, "")
+          .replace(/```/g, "")
+          .trim();
+        const jsonMatch = cleaned.match(/\[\s*\{[\s\S]*\}\s*\]/);
+        const jsonToParse = jsonMatch ? jsonMatch[0] : cleaned;
         generatedItinerary = JSON.parse(jsonToParse);
       } catch (parseErr) {
         console.error("Failed to parse JSON:", parseErr);
-        setError("Failed to parse itinerary from API response");
+        setError("Failed to parse itinerary from Gemini response");
         setLoading(false);
         return;
       }
@@ -186,20 +190,20 @@ const TripDetails = () => {
       activities: [...d.activities],
     }));
     list[dayIdx].activities = list[dayIdx].activities.filter(
-      (a) => a.id !== activityId
+      (a) => a.id !== activityId,
     );
     setItinerary(list);
   };
   const [saving, setSaving] = useState(false);
-  const saveItinerary = async() => {
+  const saveItinerary = async () => {
     setSaving(true);
-    try{
-        await updateTrip(tripId, {tripItinerary: itinerary});
-        alert("Itinerary saved!");
-    }catch(err) {
+    try {
+      await updateTrip(tripId, { tripItinerary: itinerary });
+      alert("Itinerary saved!");
+    } catch (err) {
       confirm.error(err);
       alert("Failed to save itinerary, try again!");
-    }finally {
+    } finally {
       setSaving(false);
     }
   };
@@ -225,7 +229,8 @@ const TripDetails = () => {
                 {trip.tripName}
               </h1>
               <p className="text-lg text-gray-600">
-                🌍 {trip.tripDestination} • {formatDate(trip.tripStartDate)} to {formatDate(trip.tripEndDate)}
+                🌍 {trip.tripDestination} • {formatDate(trip.tripStartDate)} to{" "}
+                {formatDate(trip.tripEndDate)}
               </p>
             </div>
             <div className="flex gap-2">
@@ -243,7 +248,8 @@ const TripDetails = () => {
                 + Add Place
               </button>
               <button
-                onClick={saveItinerary} disabled={saving}
+                onClick={saveItinerary}
+                disabled={saving}
                 className="px-6 py-3 rounded-lg border-2 border-[#3E8DD6] text-[#3E8DD6] font-semibold hover:bg-[#3E8DD6] hover:text-white transition"
               >
                 {saving ? "Saving..." : "Save Itinerary"}
@@ -256,15 +262,21 @@ const TripDetails = () => {
         <div className="grid grid-cols-1 md:grid-cols-4 gap-4 mb-8">
           <div className="bg-white rounded-2xl shadow-md p-6 border-l-4 border-[#3E8DD6]">
             <p className="text-gray-500 text-sm font-semibold">Trip Type</p>
-            <p className="text-2xl font-bold text-[#035199] mt-2">{trip.tripType || "-"}</p>
+            <p className="text-2xl font-bold text-[#035199] mt-2">
+              {trip.tripType || "-"}
+            </p>
           </div>
           <div className="bg-white rounded-2xl shadow-md p-6 border-l-4 border-purple-500">
             <p className="text-gray-500 text-sm font-semibold">Travelers</p>
-            <p className="text-2xl font-bold text-purple-600 mt-2">{trip.tripTravellers || 1} 👥</p>
+            <p className="text-2xl font-bold text-purple-600 mt-2">
+              {trip.tripTravellers || 1} 👥
+            </p>
           </div>
           <div className="bg-white rounded-2xl shadow-md p-6 border-l-4 border-green-500">
             <p className="text-gray-500 text-sm font-semibold">Budget</p>
-            <p className="text-2xl font-bold text-green-600 mt-2">₹{trip.tripBudget || 0}</p>
+            <p className="text-2xl font-bold text-green-600 mt-2">
+              ₹{trip.tripBudget || 0}
+            </p>
           </div>
           <div className="bg-white rounded-2xl shadow-md p-6 border-l-4 border-orange-500">
             <p className="text-gray-500 text-sm font-semibold">Duration</p>
@@ -278,7 +290,8 @@ const TripDetails = () => {
                 } catch {
                   return 1;
                 }
-              })()} Days
+              })()}{" "}
+              Days
             </p>
           </div>
         </div>
@@ -286,7 +299,9 @@ const TripDetails = () => {
         {/* Preferences */}
         {trip.tripPreferences && trip.tripPreferences.length > 0 && (
           <div className="bg-white rounded-2xl shadow-md p-6 mb-8">
-            <h3 className="text-lg font-semibold text-[#035199] mb-3">📌 Trip Preferences</h3>
+            <h3 className="text-lg font-semibold text-[#035199] mb-3">
+              📌 Trip Preferences
+            </h3>
             <div className="flex flex-wrap gap-2">
               {trip.tripPreferences.map((pref, idx) => (
                 <span
@@ -316,7 +331,10 @@ const TripDetails = () => {
             <div className="text-center py-12 text-gray-600">
               <div className="text-6xl mb-4">🗺️</div>
               <p className="text-lg font-semibold">No itinerary yet</p>
-              <p className="text-sm mt-2">Click "Generate Itinerary" to create an AI-powered plan, or "Add Place" to build manually.</p>
+              <p className="text-sm mt-2">
+                Click "Generate Itinerary" to create an AI-powered plan, or "Add
+                Place" to build manually.
+              </p>
             </div>
           ) : (
             <div className="space-y-4">
@@ -341,13 +359,19 @@ const TripDetails = () => {
                         >
                           <div className="flex-1">
                             <div className="flex items-center gap-2 mb-1">
-                              <span className="text-lg font-bold text-[#3E8DD6]">🕐</span>
-                              <span className="text-sm font-semibold text-gray-600">{act.time}</span>
+                              <span className="text-lg font-bold text-[#3E8DD6]">
+                                🕐
+                              </span>
+                              <span className="text-sm font-semibold text-gray-600">
+                                {act.time}
+                              </span>
                             </div>
                             <div className="text-lg font-semibold text-[#035199] mb-1">
                               📍 {act.place}
                             </div>
-                            <p className="text-gray-600 text-sm">{act.description}</p>
+                            <p className="text-gray-600 text-sm">
+                              {act.description}
+                            </p>
                             {act.avg_cost && (
                               <div className="mt-2 text-sm font-semibold text-green-600">
                                 💰 ₹{act.avg_cost}
@@ -363,7 +387,9 @@ const TripDetails = () => {
                         </div>
                       ))
                     ) : (
-                      <p className="text-gray-500 text-sm">No activities planned for this day.</p>
+                      <p className="text-gray-500 text-sm">
+                        No activities planned for this day.
+                      </p>
                     )}
                   </div>
                 </div>
@@ -377,24 +403,33 @@ const TripDetails = () => {
       {showAddActivity && (
         <div className="fixed inset-0 bg-black/40 backdrop-blur-sm flex items-center justify-center z-50">
           <div className="bg-white rounded-2xl p-8 w-full max-w-md shadow-2xl">
-            <h3 className="text-2xl font-bold text-[#035199] mb-6">➕ Add Activity</h3>
+            <h3 className="text-2xl font-bold text-[#035199] mb-6">
+              ➕ Add Activity
+            </h3>
 
             <div className="space-y-4">
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Day</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Day
+                </label>
                 <input
                   type="number"
                   min={1}
                   value={newActivity.day}
                   onChange={(e) =>
-                    setNewActivity((s) => ({ ...s, day: Number(e.target.value) }))
+                    setNewActivity((s) => ({
+                      ...s,
+                      day: Number(e.target.value),
+                    }))
                   }
                   className="w-full p-3 border-2 border-gray-300 rounded-lg focus:border-[#3E8DD6] focus:outline-none transition"
                 />
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Time</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Time
+                </label>
                 <input
                   type="time"
                   value={newActivity.time}
@@ -406,7 +441,9 @@ const TripDetails = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Place</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Place
+                </label>
                 <input
                   value={newActivity.place}
                   onChange={(e) =>
@@ -418,11 +455,16 @@ const TripDetails = () => {
               </div>
 
               <div>
-                <label className="block text-sm font-semibold text-gray-700 mb-2">Description</label>
+                <label className="block text-sm font-semibold text-gray-700 mb-2">
+                  Description
+                </label>
                 <textarea
                   value={newActivity.description}
                   onChange={(e) =>
-                    setNewActivity((s) => ({ ...s, description: e.target.value }))
+                    setNewActivity((s) => ({
+                      ...s,
+                      description: e.target.value,
+                    }))
                   }
                   placeholder="What will you do here?"
                   rows={3}

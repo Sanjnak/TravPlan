@@ -18,6 +18,7 @@ const BrowsePage = () => {
   );
   const userName = useSelector(
     (state) => state.user?.userName || "User"
+    
   );
   const email = useSelector(
     (state) => state.user?.email || "@abc"
