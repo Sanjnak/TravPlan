@@ -1,1 +1,3 @@
-export const BG_IMG_URL = "src/utils/pexels-thephotokai-34113885.jpg"
+import bgImage from "./pexels-thephotokai-34113885.jpg";
+
+export const BG_IMG_URL = bgImage;
